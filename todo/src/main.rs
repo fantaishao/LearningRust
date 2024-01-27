@@ -48,6 +48,36 @@ impl TaskManager {
         self.save_tasks();
     }
 
+    fn update_task(&mut self, id: usize, new_description: String) {
+        if let Some(task) = self.tasks.get_mut(&id) {
+            task.description = new_description;
+            self.save_tasks();
+            println!("Task with ID {} updated.", id);
+        } else {
+            println!("Task with ID {} not found.", id);
+        }
+    }
+
+    fn delete_task(&mut self, id:usize) {
+        if let Some(task) = self.tasks.get_mut(&id) {
+            self.tasks.remove(&id);
+            self.save_tasks();
+            println!("Task with ID {} is deleted.", id);
+        } else {
+            println!("Task with ID {} not found.", id);
+        }
+    }
+
+    fn complete_task(&mut self, id: usize) {
+        if let Some(task) = self.tasks.get_mut(&id) {
+            task.completed = true;
+            self.save_tasks();
+            println!("Task with ID {} is completed.", id);
+        } else {
+            println!("Task with ID {} not found.", id);
+        }
+    }
+
     fn list_tasks(&self) {
         for task in self.tasks.values() {
             println!("ID: {}, Description: {}, Completed: {}", task.id, task.description, task.completed);
@@ -97,13 +127,57 @@ fn main() {
     
     match command.as_str() {
         "add" => {
-            if args.len() < 3 {
+            if args.len() < 4 {
                 println!("Usage cargo run add <description>");
                 return;
             }
             let description = args[2].clone();
             println!("Adding task with description: {}", description);
             task_manager.add_task(description);
+        }
+        "update" => {
+            if args.len() < 4 {
+                println!("Usage: cargo run update <id> <new_description>");
+                return;
+            }
+
+            let id:usize = match args[2].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("Invalid ID format.");
+                    return;
+                }
+            };
+            let new_description = args[3].clone();
+            task_manager.update_task(id, new_description);
+        }
+        "delete" => {
+            if args.len() < 3 {
+                println!("Usage: cargo run delete <id>");
+                return;
+            }
+            let id:usize = match args[2].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("Invalid ID format.");
+                    return;
+                }
+            };
+            task_manager.delete_task(id);
+        }
+        "complete" => {
+            if args.len() < 3 {
+                println!("Usage: cargo run complete <id>");
+                return;
+            }
+            let id:usize = match args[2].parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    println!("Invalid ID format.");
+                    return;
+                }
+            };
+            task_manager.complete_task(id);
         }
         "list" => {
             task_manager.list_tasks();
