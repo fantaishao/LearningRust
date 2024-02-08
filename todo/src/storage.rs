@@ -39,6 +39,13 @@ pub enum LoadError {
     Format,
 }
 
+#[derive(Debug, Clone)]
+pub enum SaveError {
+    File,
+    Write,
+    Format,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 impl SavedState {
     pub fn path() -> std::path::PathBuf {
@@ -68,5 +75,35 @@ impl SavedState {
             .map_err(|_| LoadError::File)?;
 
         serde_json::from_str(&contents).map_err(|_| LoadError::Format)
+    }
+
+    pub async fn save(self) -> Result<(), SaveError> {
+        use async_std::prelude::*;
+
+        let json = serde_json::to_string_pretty(&self)
+            .map_err(|_| SaveError::Format)?;
+
+        let path = Self::path();
+
+        if let Some(dir) = path.parent() {
+            async_std::fs::create_dir_all(dir)
+                .await
+                .map_err(|_| SaveError::File)?;
+        }
+
+        {
+            let mut file = async_std::fs::File::create(path)
+                .await
+                .map_err(|_| SaveError::File)?;
+
+            file.write_all(json.as_bytes())
+                .await
+                .map_err(|_| SaveError::File)?;
+        }
+
+        // save data at most once every couple seconds
+        async_std::task::sleep(std::time::Duration::from_secs(2)).await;
+
+        Ok(())
     }
 }

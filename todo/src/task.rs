@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::collections::HashMap;
+use iced::widget::{ text_input, text, checkbox, row, Text, button };
+use iced::theme::{self, Theme};
+use iced::alignment::{self, Alignment};
+use iced::{Color, Command, Length, Settings, Subscription};
+use iced::{Application, Element};
+use iced::font::{self, Font};
 
 #[derive(Debug, Clone)]
 pub enum TaskState {
@@ -19,7 +25,7 @@ pub enum TaskMessage {
     Completed(bool),
     TaskUpdate,
     DescriptionEdited(String),
-    // FinishEdition,
+    FinishEdition,
     TaskDeleted,
 }
 
@@ -34,6 +40,10 @@ pub struct TaskManager {
 }
 
 impl TaskManager {
+    pub fn text_input_id(i: usize) -> text_input::Id {
+        text_input::Id::new(format!("task-{i}"))
+    }
+
     pub fn new(description: String) -> Self {
         // TaskManager {
         //     tasks: HashMap::new(),
@@ -58,82 +68,76 @@ impl TaskManager {
                 self.description = new_description;
             }
             TaskMessage::TaskDeleted => {}
+            TaskMessage::FinishEdition => {
+                if !self.description.is_empty() {
+                    self.state = TaskState::Idle;
+                }
+            }
         }
     }
 
-    // pub fn add_task(&mut self, description: String) {
-    //     // Check if the id already exists
-    //     while self.tasks.contains_key(&self.next_id) {
-    //         println!("Conflict! ID {} already exists, trying the next one.", self.next_id);
-    //         self.next_id += 1;
-    //     }
+    pub fn view(&self, i: usize) -> Element<TaskMessage> {
+        match &self.state {
+            TaskState::Idle => {
+                let checkbox = checkbox(
+                    &self.description,
+                    self.completed,
+                    TaskMessage::Completed,
+                )
+                .width(Length::Fill)
+                .text_shaping(text::Shaping::Advanced);
 
-    //     let task = Task::new(self.next_id, description);
-    //     self.tasks.insert(self.next_id, task);
-    //     self.next_id += 1;
-    //     self.save_tasks();
-    // }
+                row![
+                    checkbox,
+                    button(edit_icon())
+                        .on_press(TaskMessage::TaskUpdate)
+                        .padding(10)
+                        .style(theme::Button::Text)
+                ]
+                .spacing(20)
+                .align_items(Alignment::Center)
+                .into()
+            }
+            TaskState::Editing => {
+                let text_input = text_input("Describe your task...", &self.description)
+                    .id(Self::text_input_id(i))
+                    .on_input(TaskMessage::DescriptionEdited)
+                    .on_submit(TaskMessage::FinishEdition)
+                    .padding(10);
+                
+                row![
+                    text_input,
+                    button(
+                        row![delete_icon(), "Delete"]
+                            .spacing(10)
+                            .align_items(Alignment::Center)
+                    )
+                    .on_press(TaskMessage::TaskDeleted)
+                    .padding(10)
+                    .style(theme::Button::Destructive)
+                ]
+                .spacing(20)
+                .align_items(Alignment::Center)
+                .into()
+            }
+        }
+    }
+}
 
-    // pub fn update_task(&mut self, id: usize, new_description: String) {
-    //     if let Some(task) = self.tasks.get_mut(&id) {
-    //         task.description = new_description;
-    //         self.save_tasks();
-    //         println!("Task with ID {} updated.", id);
-    //     } else {
-    //         println!("Task with ID {} not found.", id);
-    //     }
-    // }
+// Fonts
+const ICONS: Font = Font::with_name("Iced-Todos-Icons");
 
-    // pub fn delete_task(&mut self, id:usize) {
-    //     if let Some(task) = self.tasks.get_mut(&id) {
-    //         self.tasks.remove(&id);
-    //         self.save_tasks();
-    //         println!("Task with ID {} is deleted.", id);
-    //     } else {
-    //         println!("Task with ID {} not found.", id);
-    //     }
-    // }
+fn icon(unicode: char) -> Text<'static> {
+    text(unicode.to_string())
+        .font(ICONS)
+        .width(20)
+        .horizontal_alignment(alignment::Horizontal::Center)
+}
 
-    // pub fn complete_task(&mut self, id: usize) {
-    //     if let Some(task) = self.tasks.get_mut(&id) {
-    //         task.completed = true;
-    //         self.save_tasks();
-    //         println!("Task with ID {} is completed.", id);
-    //     } else {
-    //         println!("Task with ID {} not found.", id);
-    //     }
-    // }
+fn edit_icon() -> Text<'static> {
+    icon('\u{F303}')
+}
 
-    // pub fn list_tasks(&self) {
-    //     for task in self.tasks.values() {
-    //         println!("ID: {}, Description: {}, Completed: {}", task.id, task.description, task.completed);
-    //     }
-    // }
-
-    // pub fn save_tasks(&self) {
-    //     let tasks_json = serde_json::to_string(&self.tasks).expect("Failed to serialize tasks");
-    //     println!("Saving tasks: {}", tasks_json);
-    //     if let Ok(_file) = fs::OpenOptions::new()
-    //         .create(true)
-    //         .write(true)
-    //         .truncate(true)
-    //         .open("tasks.json") 
-    //     {
-    //         fs::write("tasks.json", tasks_json).expect("Failed to write tasks to file");
-    //     } else {
-    //         eprintln!("Failed to open tasks.json for writing");
-    //     }
-    // }
-
-    // pub fn load_tasks(&mut self) {
-    //     if let Ok(file) = fs::read_to_string("tasks.json") {
-    //         if let Ok(tasks) = serde_json::from_str(&file) {
-    //             self.tasks = tasks;
-    //         } else {
-    //             eprintln!("Failed to deserialize tasks from file");
-    //         }
-    //     } else {
-    //         eprintln!("Failed to read tasks.json");
-    //     }
-    // }
+fn delete_icon() -> Text<'static> {
+    icon('\u{F1F8}')
 }
