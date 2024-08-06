@@ -6,3 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rand = "0.8.4"
+toml = "0.8.11"
+walkdir = "2.3"
+swc_common = { version = "0.33.21", features = [] }
+swc_ecma_parser = { version = "0.143.11", features = [] }
+swc_ecma_ast = { version = "0.112.6", features = [] }
+swc_ecma_visit = "0.98.6"
+swc = "0.273.23"
