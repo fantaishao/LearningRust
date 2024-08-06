@@ -15,6 +15,7 @@ pub enum TaskState {
 }
 
 impl Default for TaskState {
+    // 使用 Idle 作为默认状态，不需要显式地指定
     fn default() -> Self {
         Self::Idle
     }

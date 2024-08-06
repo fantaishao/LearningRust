@@ -33,12 +33,7 @@ pub fn main() -> iced::Result {
 pub enum TodoAppUI {
     Loading,
     Loaded(State),
-    // pub task_manager: TaskManager,
-    // pub description_input: TextInput,
-    // pub add_button: button::State,
-    // pub tasks_scrollable: Scrollable,
 }
-
 #[derive(Debug, Default)]
 pub struct State {
     description_input: String,
@@ -69,14 +64,6 @@ impl Application for TodoAppUI  {
     type Flags = ();
 
     fn new(_flags: ()) -> (TodoAppUI, Command<Message>) {
-        // let mut task_manager = TaskManager::new();
-        // task_manager.load_tasks();
-        // TodoAppUI{
-        //     task_manager,
-        //     description_input: TextInput::new(),
-        //     add_button: button::State::new(),
-        //     tasks_scrollable: Scrollable::new(),
-        // }
         (
             TodoAppUI::Loading,
             Command::batch(vec![
@@ -261,70 +248,6 @@ impl Application for TodoAppUI  {
                 .into()
             }
         }
-        // define ui layout
-        // let content = Column::new()
-        //     .spacing(20)
-        //     .align_items(Alignment::Center)
-        //     .push(
-        //         TextInput::new(
-        //             &mut self.description_input,
-        //             "Enter task description",
-        //             "",
-        //             Message::DescriptionInputChanged,
-        //         )
-        //         .padding(10)
-        //         .size(30)
-        //     )
-        //     .push(
-        //         Button::new(&mut self.add_button, Text::new("Add Task"))
-        //             .on_press(Message::CreateTask)
-        //             .padding(10)
-        //             .width(Length::Fill)
-        //             .style(Default::default()),
-        //     );
-
-        //     let tasks_columns = self.task_manager.tasks.iter().fold(
-        //         Column::new().spacing(10),
-        //         |column, (id, task)| {
-        //             let complete_button = Button::new(&mut button::State::new(), Text::new("Complete"))
-        //             .on_press(Message::TaskCompleted(*id))
-        //             .padding(10);
-
-        //             let edit_button = Button::new(&mut button::State::new(), Text::new("Edit"))
-        //                 .on_press(Message::TaskEdited(*id, task.description.clone()))
-        //                 .padding(10);
-
-        //             let delete_button = Button::new(&mut button::State::new(), Text::new("Delete"))
-        //                 .on_press(Message::TaskDeleted(*id))
-        //                 .padding(10);
-
-        //             let task_row = Row::new()
-        //                 .push(Text::new(&format!("ID: {}", id)).width(Length::Fill))
-        //                 .push(Text::new(&format!("Description: {}", task.description)).width(Length::Fill))
-        //                 .push(complete_button)
-        //                 .push(edit_button)
-        //                 .push(delete_button);
-
-        //             column.push(task_row)
-        //         },
-        //     );
-
-        //     let tasks_content = Container::new(
-        //         Scrollable::new(&mut self.tasks_scrollable)
-        //             .push(tasks_columns)
-        //             .width(Length::Fill)
-        //             .height(Length::Fill),
-        //     )
-        //     .width(Length::Fill)
-        //     .height(Length::Fill);
-
-        //     // return the content wrapped in a container
-        //     Column::new()
-        //         .spacing(20)
-        //         .align_items(Alignment::Center)
-        //         .push(content)
-        //         .push(tasks_content)
-        //         .into()
     }
 }
 
@@ -355,10 +278,8 @@ pub fn view_controls(tasks: &[TaskManager], current_filter: Filter) -> Element<M
         let label = text(label);
 
         let button = button(label).style(if filter == current_filter {
-            println!("当前点击的是Primary{:?} {:?}", filter, current_filter);
             theme::Button::Primary
         } else {
-            println!("当前点击的是Text{:?} {:?}", filter, current_filter);
             theme::Button::Text
         });
 
