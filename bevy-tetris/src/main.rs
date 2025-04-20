@@ -1,116 +1,125 @@
-use bevy::{prelude::*, window::WindowResolution};
+use std::time::Duration;
+use bevy::{prelude::*, transform::TransformSystem};
+use board::*;
+use piece::*;
+use common::*;
+use menu::*;
+use stats::*;
 
-#[derive(Component)]
-struct Person;
+mod board;
+mod piece;
+mod common;
+mod menu;
+mod stats;
 
-#[derive(Component)]
-struct Name(String);
-
-#[derive(Resource)]
-struct GreetTimer(Timer);
-
-fn hello_world() {
-    println!("hello world!");
-}
-
-#[derive(Component)]
-struct Size {
-    width: f32,
-    height: f32
-}
-
-impl Size {
-    pub fn square(x: f32) -> Self {
-        Self {
-            width: x,
-            height: x
-        }
-    }
-}
-
-
-fn add_people(mut commands: Commands) {
-    commands.spawn((Person, Name("Elaina Proctor".to_string())));
-    commands.spawn((Person, Name("Renzo Hume".to_string())));
-    commands.spawn((Person, Name("Zayna Nieves".to_string())));
-}
-
-fn greet_people(time: Res<Time>, mut timer: ResMut<GreetTimer>, query: Query<&Name, With<Person>>) {
-    // update our timer with the time elapsed since the last update
-    // if that caused the timer to finish, we say hello to everyone
-    if timer.0.tick(time.delta()).just_finished() {
-        for name in &query {
-            println!("hello {}!", name.0);
-        }
-    }
-}
-
-fn update_people(mut query: Query<&mut Name, With<Person>>) {
-    for mut name in &mut query {
-        if name.0 == "Elaina Proctor" {
-            name.0 = "Elaina Hume".to_string();
-            break; // We don't need to change any other names.
-        }
-    }
-}
-
-fn add_square(
-    commands: &mut Commands, 
-    materials: &mut ResMut<Assets<ColorMaterial>>, 
-    size: f32, 
-    color: Color, 
-    position: Vec3
-) {
-    commands.spawn_bundle(SpriteBundle {
-        material: materials.add(ColorMaterial::color(color)), // 设置正方形颜色
-        sprite: Sprite::new(Vec2::new(size, size)), // 设置正方形大小
-        transform: Transform::from_translation(position), // 设置正方形位置
-        ..Default::default()
-    });
-}
-
-fn setup(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
-    // 添加 2D 摄像机
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
-
-    // 调用 add_square 方法绘制一个正方形
-    add_square(&mut commands, &mut materials, 100.0, Color::rgb(0.2, 0.7, 0.9), Vec3::new(0.0, 0.0, 0.0));
-    
-    // 可以添加多个正方形
-    add_square(&mut commands, &mut materials, 50.0, Color::rgb(0.9, 0.1, 0.1), Vec3::new(200.0, 100.0, 0.0));
-}
-
-pub struct HelloPlugin;
-
-impl Plugin for HelloPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(GreetTimer(Timer::from_seconds(2.0, TimerMode::Repeating)));
-        app.add_systems(Startup, add_people);
-        app.add_systems(Update, (hello_world, (update_people, greet_people).chain()));
-    }
-}
-
-pub struct DrawCubePlugin;
-
-impl Plugin for DrawCubePlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
-    }
-}
-
-fn main() {
+fn main(){
     App::new()
-    // 设置窗口的大小   
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Tetris".to_string(),
-                resolution: WindowResolution::new(400.0, 700.0),
-                ..default()
-            }),
-            ..default()
-        }))
-        // .add_plugins(DefaultPlugins)
-        .add_plugins(HelloPlugin)
-        .add_plugins(DrawCubePlugin)
+        .insert_resource(Score(0))
+        .insert_resource(Lines(0))
+        .insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(NextPieceType(None))
+        .insert_resource(AutoMovePieceDownTimer(Timer::new(
+            Duration::from_millis(1000),
+            TimerMode::Repeating,
+        )))
+        .insert_resource(ManuallyMoveTimer(Timer::new(
+            Duration::from_millis(100),
+            TimerMode::Once,
+        )))
+        .insert_resource(RemovePieceComponentTimer(Timer::new(
+            Duration::from_millis(300),
+            TimerMode::Once,
+        )))
+        .add_plugins(DefaultPlugins)
+        .init_state::<AppState>()
+        .init_state::<GameState>()
+        .add_systems(
+            Startup,
+            (
+                setup_camera,
+                setup_game_board,
+                setup_game_audios,
+                setup_stats_boards,
+                setup_piece_queue,
+            ),
+        )
+        // Game Playing
+        .add_systems(
+            PostUpdate, 
+            (
+                check_collision,
+                remove_piece_component,
+                check_game_over.after(remove_piece_component),
+                check_full_line
+                    .after(remove_piece_component)
+                    .before(TransformSystem::TransformPropagate),
+            )
+        .run_if(in_state(GameState::GamePlaying)),
+    )
+        .add_systems(
+            Update,
+            (
+                rotate_piece,
+                move_piece,
+                auto_generate_new_piece,
+                update_scoreboard,
+                update_linesboard,
+                update_next_piece_board,
+                control_piece_visibility,
+            ).run_if(in_state(GameState::GamePlaying)),
+        )
+        .add_systems(
+            Update,
+            click_button.run_if(
+                in_state(AppState::MainMenu)
+                .or(in_state(AppState::GameOver))
+                .or(in_state(GameState::GamePaused))
+            )
+        )
+        .add_systems(
+            OnEnter(AppState::MainMenu),
+            (
+                setup_main_menu,
+                clear_game_board,
+                reset_score,
+                reset_lines,
+                clear_next_piece_board
+            )
+        )
+        // Game Over Menu
+        .add_systems(OnEnter(AppState::GameOver), setup_game_over_menu)
+        .add_systems(OnExit(AppState::GameOver), (
+            despawn_screen::<OnGameOverMenuScreen>,
+            clear_game_board,
+            reset_score,
+            reset_lines,
+            clear_next_piece_board,
+        ))
+        // Game Paused
+        .add_systems(
+            OnExit(GameState::GamePaused),
+            despawn_screen::<OnGamePauseMenuScreen>,
+    )
+        // Game Restarted
+        .add_systems(
+            OnEnter(GameState::GameRestarted),
+            (
+                clear_game_board,
+                reset_score,
+                reset_lines,
+            )
+        )
+        .add_systems(Update, play_game.run_if(in_state(GameState::GameRestarted)))
+        // Common
+        .add_systems(Update,
+            pause_game.run_if(in_state(GameState::GamePlaying).or(in_state(GameState::GamePaused))))
+        .add_systems(
+            OnExit(AppState::MainMenu), 
+            despawn_screen::<OnMainMenuScreen>,
+        )
         .run();
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
 }
