@@ -36,6 +36,9 @@ Here's a list of features you could add to enhance your learning experience with
    - **Rust Characteristics:** Functional programming, zero-cost abstractions
    - **Standard Library Iterators**
 
+9. analysis 10W+ excel data
+10. Webassembly
+
 ## 2. Feature List for web_server
 
 1. **Persistent Storage**

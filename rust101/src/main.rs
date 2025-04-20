@@ -59,8 +59,10 @@ fn append_node(data: &[Node], parent_id: &str, new_node: Node) -> Vec<Node>{
     result
 }
 
-fn main() {
-    match fetch_tree_data() {
+// Update main to be async and use tokio runtime
+#[tokio::main]
+async fn main() {
+    match fetch_tree_data_async().await {
         Ok(tree_data) => {
             println!("tree_data: {:?}", tree_data);
             
@@ -81,17 +83,17 @@ fn main() {
     }
 
     let node_id = "4";
-    match get_node_by_id(node_id)  {
+    match get_node_by_id_async(node_id).await  {
         Ok(node) => println!("Node fetched from server: {:?}", node),
         Err(e) => println!("Error fetching node : {}", e),
     }
 
-    match delete_node_by_id(node_id) {
+    match delete_node_by_id_async(node_id).await {
         Ok(node) => {
             println!("node deleted from server: {:?}", node);
 
             // fetch tree data again after successful deletion
-            match fetch_tree_data()  {
+            match fetch_tree_data_async().await  {
                 Ok(updated_tree_data) => {
                     println!("Updated tree data after deletion: {:?}", updated_tree_data);
                     
@@ -106,6 +108,8 @@ fn main() {
         },
         Err(e) => println!("Error deleting node : {}", e),
     }
+
+    concurrent_operations().await;
 }
 
 /***
@@ -129,6 +133,23 @@ fn fetch_tree_data() -> Result<Vec<Node>, Box<dyn Error>> {
 
     Ok(tree_data)
 }
+async fn fetch_tree_data_async() -> Result<Vec<Node>, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+
+    // make the GET request
+    let resp = client.get("http://localhost:7878/api/treedata").send().await?.text().await?;
+
+    // parse the json response
+    let parsed: serde_json::Value = serde_json::from_str(&resp)?;
+
+    // extract the nodes array
+    let nodes = parsed["nodes"].as_array().ok_or("Invalid response format:'nodes' array not found")?;
+
+    // deserialize into Vec<Node>
+    let tree_data: Vec<Node> = serde_json::from_value(nodes.clone().into())?;
+
+    Ok(tree_data)
+}
 
 /***
  * 从后端项目web_server的接口 http://localhost:7878/api/getTreeDataById获取指定ID的节点
@@ -137,6 +158,22 @@ fn get_node_by_id(id: &str) -> Result<Node, Box<dyn Error>> {
     let client = reqwest::blocking::Client::new();
     let url = format!("http://localhost:7878/api/getNode?id={}", id);
     let resp = client.get(url).send()?.text()?;
+
+    // parse the json response
+    let parsed: serde_json::Value = serde_json::from_str(&resp)?;
+
+    // extract the nodes array
+    let node = parsed["node"].as_object().ok_or("Invalid response format:'node' not found")?;
+
+    // deserialize into Vec<Node>
+    let node_data: Node = serde_json::from_value(parsed["node"].clone())?;
+
+    Ok(node_data)
+}
+async fn get_node_by_id_async(id: &str) -> Result<Node, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:7878/api/getNode?id={}", id);
+    let resp = client.get(url).send().await?.text().await?;
 
     // parse the json response
     let parsed: serde_json::Value = serde_json::from_str(&resp)?;
@@ -179,4 +216,46 @@ fn delete_node_by_id(id: &str) -> Result<Node, Box<dyn Error>> {
         Err(format!("Unexpected response format: {}", resp).into())
     }
 }
+async fn delete_node_by_id_async (id: &str) -> Result<Node, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:7878/api/deleteNode?id={}", id);
+    let resp = client.get(url).send().await?.text().await?;
 
+    println!("Raw response: {}", resp);
+
+    // parse the json response
+    let parsed: serde_json::Value = serde_json::from_str(&resp)?;
+
+    println!("Is deleted_node an object? {}", parsed["deleted_node"].is_object());
+
+    // check if the response contains a deleted_node filld
+    if parsed["deleted_node"].is_object() {
+       println!("Deleted node content: {}", parsed["deleted_node"]);
+        // deseriallize into Node
+        let node_data: Node = serde_json::from_value(parsed["deleted_node"].clone())?;
+        Ok(node_data)
+    } else if parsed["error"].is_string() {
+        // Handle error response
+        Err(format!("Server error: {}", parsed["error"].as_str().unwrap_or("Unknown error")).into())
+    } else {
+        // Unexpected response format
+        Err(format!("Unexpected response format: {}", resp).into())
+    }
+}
+
+// to see benefits of async, add code to perform multiple operations concurrently
+async fn concurrent_operations() {
+    // strart multiple operations concurrently without waiting for each to complete
+    let tree_data_future = fetch_tree_data_async();
+    let node_future = get_node_by_id_async("4");
+
+    // now await both result - they're been running in parallel
+    let (tree_data_result, node_result) = tokio::join!(tree_data_future, node_future);
+
+    match (tree_data_result, node_result) {
+        (Ok(tree_data), Ok(node)) => {
+            println!("Got both results concurrrently: {:?}, {:?}", tree_data, node);
+        },
+        _ => println!("One or both operation failed")
+    }
+}
