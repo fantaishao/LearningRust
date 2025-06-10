@@ -1,288 +1,288 @@
 <template>
-    <div class="canvas-wrapper">
-        <canvas ref="canvasRef" @mousemove="handleMouseMove" @mouseout="handleMouseOut"></canvas>
+    <div class="canvas-wrapper" ref="wrapperRef">
+        <canvas
+            ref="canvasRef"
+            @mousemove="handleMouseMove"
+            @mousedown="handleMouseDown"
+            @mouseleave="handleMouseOut"
+        ></canvas>
+        <!-- Column splitters -->
+        <div
+        v-for="(left, colIdx) in colSplitterPositions"
+        :key="'col-splitter-' + colIdx"
+        class="splitter splitter-vertical"
+        :style="{ left: left + 'px', height: tableHeight + 'px', top: 0 }"
+        @mousedown="startColResize(colIdx, $event)"
+        ></div>
+        <!-- Row splitters -->
+        <div
+        v-for="(top, rowIdx) in rowSplitterPositions"
+        :key="'row-splitter-' + rowIdx"
+        class="splitter splitter-horizontal"
+        :style="{ top: top + 'px', width: tableWidth + 'px', left: 0 }"
+        @mousedown="startRowResize(rowIdx, $event)"
+        ></div>
     </div>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref, render } from 'vue';
-import init, { 
-    draw_rectangle, 
-    draw_table, 
-    get_cell_at_position, 
-    highlight_cell, 
-    clear_canvas,
+import { onMounted, onUnmounted, ref, computed } from 'vue';
+import init, {
+    draw_table,
+    get_cell_at_position,
     highlight_with_mode,
-    HighlightMode 
- } from '@/wasm/wasm_module';
+    HighlightMode
+} from '@/wasm/wasm_module';
 
 const canvasRef = ref(null);
-const overlayCanvasRef = ref(null); // New canvas for highlights only
-const ctx = ref(null);
-const cellWidth = 120;
-const cellHeight = 40;
+const overlayCanvasRef = ref(null);
+const wrapperRef = ref(null);
+
 const rows = 200;
 const columns = 35;
-const hoveredCell = ref(null)
-const previousHoveredCell = ref(null); // Track previous cell for cleanup
-const tableX = ref(0)
-const tableY = ref(0)
-const lastRenderTime = ref(0)
-const renderThrottleMs = 16 // ~60fps
-const pendingRedraw = ref(false)
-const rafId = ref(null)
-const currentHighlightMode = ref(HighlightMode.Row) // Set to row highlighting by default
+const tableX = ref(0);
+const tableY = ref(0);
 
-function createOverlayCanvas() {
-    // Create an overlay canvas positioned on top of the main canvas
-    overlayCanvasRef.value = document.createElement('canvas');
-    overlayCanvasRef.value.style.position = 'absolute';
-    overlayCanvasRef.value.style.top = '0';
-    overlayCanvasRef.value.style.left = '0';
-    overlayCanvasRef.value.style.pointerEvents = 'none'; // Pass events to canvas below
-    
-    // Add to the same container as the main canvas
-    canvasRef.value.parentElement.appendChild(overlayCanvasRef.value);
-}
+const cellWidths = ref(Array(columns).fill(120));
+const cellHeights = ref(Array(rows).fill(40));
 
-function initializeTable() {
-    if (!canvasRef.value) return;
-    // draw_rectangle(canvasRef.value, 50, 50, 100, 100);
+const hoveredCell = ref(null);
+const currentHighlightMode = ref(HighlightMode.Row);
 
+const resizing = ref(false);
+const resizeType = ref(null); // 'row' or 'col'
+const resizeIndex = ref(null);
+const startPos = ref(0);
+const startSize = ref(0);
 
-    // Get the device pixel ratio
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+function getResizeHandle(event) {
+    const rect = canvasRef.value.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
 
-    // Get the CSS dimensions of the canvas container
-    const displayWidth = cellWidth * columns + (2 * tableX.value);
-    const displayHeight = cellHeight * rows + (2 * tableY.value);
-
-    
-    // Set the canvas CSS dimensions
-    canvasRef.value.style.width = `${displayWidth}px`;
-    canvasRef.value.style.height = `${displayHeight}px`;
-    
-    // Set the canvas buffer dimensions accounting for DPR
-    canvasRef.value.width = displayWidth * dpr;
-    canvasRef.value.height = displayHeight * dpr;
-
-    // Scale the context to maintain the same visual size
-    const context = canvasRef.value.getContext('2d');
-    context.scale(dpr, dpr);
-    
-    // Configure overlay canvas the same way
-    overlayCanvasRef.value.style.width = `${displayWidth}px`;
-    overlayCanvasRef.value.style.height = `${displayHeight}px`;
-    overlayCanvasRef.value.width = displayWidth * dpr;
-    overlayCanvasRef.value.height = displayHeight * dpr;
-    
-    // Scale overlay context
-    const overlayContext = overlayCanvasRef.value.getContext('2d');
-    overlayContext.scale(dpr, dpr);
-    
-    // Draw the main table (only once)
-    drawMainTable();
-    
-    // Set up positioning
-    updateOverlayPosition();
-}
-
-function drawMainTable() {
-    // Draw the table once - we won't redraw it for hover effects
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    
-    draw_table(
-        canvasRef.value,
-        tableX.value,
-        tableY.value,
-        canvasRef.value.width / dpr,
-        canvasRef.value.height / dpr,
-        cellWidth,
-        cellHeight,
-        rows, columns
-    );
-}
-function updateHighlight() {
-    // Use requestAnimationFrame for smoother rendering
-    if (pendingRedraw.value) return
-
-    pendingRedraw.value = true
-    
-    rafId.value = requestAnimationFrame(() => {
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-        const overlayContext = overlayCanvasRef.value.getContext('2d');
-        // Clear only the overlay canvas
-        overlayContext.clearRect(
-            0, 
-            0, 
-            overlayCanvasRef.value.width / dpr, 
-            overlayCanvasRef.value.height / dpr
-        );
-
-        
-        // Redraw highlight if needed
-        if (hoveredCell.value && hoveredCell.value.row >= 0 && hoveredCell.value.col >= 0) {
-            highlight_with_mode(
-                overlayCanvasRef.value,
-                hoveredCell.value.row,
-                hoveredCell.value.col,
-                tableX.value,
-                tableY.value,
-                cellWidth,
-                cellHeight,
-                rows,
-                columns,
-                "rgba(0, 123, 255, 0.2)", // Highlight color
-                currentHighlightMode.value
-            )
+    // Check for column handles
+    let accWidth = tableX.value;
+    for (let i = 0; i < columns; i++) {
+        accWidth += cellWidths.value[i];
+        if (Math.abs(x - accWidth) < 5) {
+            return { type: 'col', index: i };
         }
-
-        pendingRedraw.value = false
-    })
+    }
+    // Check for row handles
+    let accHeight = tableY.value;
+    for (let i = 0; i < rows; i++) {
+        accHeight += cellHeights.value[i];
+        if (Math.abs(y - accHeight) < 5) {
+            return { type: 'row', index: i };
+        }
+    }
+    return null;
 }
 
-function updateOverlayPosition() {
-    // Position the overlay exactly over the main canvas
-    if (overlayCanvasRef.value && canvasRef.value) {
-        const rect = canvasRef.value.getBoundingClientRect();
-        overlayCanvasRef.value.style.top = `${rect.top}px`;
-        overlayCanvasRef.value.style.left = `${rect.left}px`;
+function handleMouseDown(event) {
+    const handle = getResizeHandle(event);
+    if (handle) {
+        resizing.value = true;
+        resizeType.value = handle.type;
+        resizeIndex.value = handle.index;
+        startPos.value = handle.type === 'col' ? event.clientX : event.clientY;
+        startSize.value = handle.type === 'col'
+            ? cellWidths.value[handle.index]
+            : cellHeights.value[handle.index];
+        event.preventDefault();
     }
 }
 
 function handleMouseMove(event) {
-    // Throttle the processing of mouse events
-    const now = performance.now()
-    if (now - lastRenderTime.value < renderThrottleMs) {
-        return // Skip processing this event if we're throttling
+    if (resizing.value) {
+        handleMouseMoveResize(event);
+        return;
     }
-
-    // Get mouse posiiton relative to canvas
+    // Normal hover logic
     const rect = canvasRef.value.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    
-    // IMPORTANT: Don't multiply by DPR here since we scaled the context
-    // We want the logical coordinates, not the physical ones
-    const mouseX = x;
-    const mouseY = y;
 
-    // Get cell at current posiiton
     const cell = get_cell_at_position(
-        mouseX,
-        mouseY,
+        x,
+        y,
         tableX.value,
         tableY.value,
-        cellWidth,
-        cellHeight,
+        Float64Array.from(cellWidths.value),
+        Float64Array.from(cellHeights.value),
         rows, columns
-    )
-    let shouldRedraw = false;
-
-    if (cell != null) {
-        // Check if hovering over a new cell
-        if (!hoveredCell.value || hoveredCell.value.row !== cell.row || hoveredCell.value.col !== cell.col) {
-            // update hovered cell
-            hoveredCell.value = {
-                row: cell.row,
-                col: cell.col
-            }
-
-            shouldRedraw = true;
-            lastRenderTime.value = now
-        }
-    } else if (hoveredCell.value !== null) {
-        // Mouse not over any cell, clear highlight
+    );
+    if (cell && cell.row !== undefined && cell.col !== undefined) {
+        hoveredCell.value = { row: cell.row, col: cell.col };
+    } else {
         hoveredCell.value = null;
-        shouldRedraw = true;
-        lastRenderTime.value = now
     }
-
-        // Only redraw if necessary
-    if (shouldRedraw) {
-        updateHighlight();
-    }
+    updateHighlight();
 }
 
-function handleMouseOut() {// Only redraw if we had a highlighted cell
-    if (hoveredCell.value !== null) {
-        // Clear highlighting when mouse leaves canvas
-        hoveredCell.value = null;
-        updateHighlight();
+function handleMouseMoveResize(event) {
+    if (!resizing.value) return;
+    const delta = (resizeType.value === 'col')
+        ? event.clientX - startPos.value
+        : event.clientY - startPos.value;
+    if (resizeType.value === 'col') {
+        cellWidths.value[resizeIndex.value] = Math.max(20, startSize.value + delta);
+    } else {
+        cellHeights.value[resizeIndex.value] = Math.max(10, startSize.value + delta);
     }
-}
-
-// Method to change highlight mode
-function setHighlightMode(mode) {
-    // mode can be HighlightMode.Cell, HighlightMode.Row, or HighlightMode.Column
-    currentHighlightMode.value = mode;
-    
-    // Redraw highlight with new mode if we have a hovered cell
-    if (hoveredCell.value) {
-        updateHighlight();
-    }
-}
-
-// Prepare for future dynamic sizing
-function updateCellDimensions(newWidth, newHeight) {
-    // Update cell dimensions
-    cellWidth = newWidth;
-    cellHeight = newHeight;
-    
-    // Redraw the entire table with new dimensions
     initializeTable();
+    updateHighlight();
 }
 
-// Handle scrolling to keep the overlay in sync
-function handleScroll() {
-    updateOverlayPosition();
+function handleMouseUp() {
+    if (resizing.value) {
+        resizing.value = false;
+        resizeType.value = null;
+        resizeIndex.value = null;
+    }
+}
+
+function handleMouseOut() {
+    hoveredCell.value = null;
+    updateHighlight();
+}
+
+function initializeTable() {
+    if (!canvasRef.value) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+
+    // Calculate total width/height
+    const displayWidth = cellWidths.value.reduce((a, b) => a + b, 0) + (2 * tableX.value);
+    const displayHeight = cellHeights.value.reduce((a, b) => a + b, 0) + (2 * tableY.value);
+
+    canvasRef.value.style.width = `${displayWidth}px`;
+    canvasRef.value.style.height = `${displayHeight}px`;
+    canvasRef.value.width = displayWidth * dpr;
+    canvasRef.value.height = displayHeight * dpr;
+
+    const context = canvasRef.value.getContext('2d');
+    context.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+    context.scale(dpr, dpr);
+
+    draw_table(
+        canvasRef.value,
+        tableX.value,
+        tableY.value,
+        displayWidth,
+        displayHeight,
+        Float64Array.from(cellWidths.value),
+        Float64Array.from(cellHeights.value),
+        rows, columns
+    );
+}
+
+function updateHighlight() {
+    if (!canvasRef.value) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    // For simplicity, just redraw the table and highlight on top
+    initializeTable();
+    if (hoveredCell.value && hoveredCell.value.row >= 0 && hoveredCell.value.col >= 0) {
+        highlight_with_mode(
+            canvasRef.value,
+            hoveredCell.value.row,
+            hoveredCell.value.col,
+            tableX.value,
+            tableY.value,
+            Float64Array.from(cellWidths.value),
+            Float64Array.from(cellHeights.value),
+            rows,
+            columns,
+            "rgba(0, 123, 255, 0.2)",
+            currentHighlightMode.value
+        );
+    }
 }
 
 onMounted(async () => {
-    // Initialize the WASM module first
     await init();
-    
-    
-    // Create overlay canvas for highlighting
-    createOverlayCanvas();
-
-    initializeTable()
-
-
-    window.addEventListener('scroll', handleScroll);
-    const wrapper = canvasRef.value?.parentElement;
-    if (wrapper) {
-        wrapper.addEventListener('scroll', handleScroll);
-    }
-})
-
+    initializeTable();
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+});
 onUnmounted(() => {
-    if (rafId.value) {
-        cancelAnimationFrame(rafId.value)
-    }
-    
-    window.removeEventListener('scroll', handleScroll);
-    const wrapper = canvasRef.value?.parentElement;
-    if (wrapper) {
-        wrapper.removeEventListener('scroll', handleScroll);
-    }
-    
-    // Remove overlay canvas
-    if (overlayCanvasRef.value && overlayCanvasRef.value.parentElement) {
-        overlayCanvasRef.value.parentElement.removeChild(overlayCanvasRef.value);
-    }
-})
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+});
+
+const colSplitterPositions = computed(() => {
+  let positions = [];
+  let acc = tableX.value;
+  for (let i = 0; i < columns - 1; i++) {
+    acc += cellWidths.value[i];
+    positions.push(acc - 2);
+  }
+  return positions;
+});
+const rowSplitterPositions = computed(() => {
+  let positions = [];
+  let acc = tableY.value;
+  for (let i = 0; i < rows - 1; i++) {
+    acc += cellHeights.value[i];
+    positions.push(acc - 2);
+  }
+  return positions;
+});
+const tableWidth = computed(() =>
+  cellWidths.value.reduce((a, b) => a + b, 0)
+);
+const tableHeight = computed(() =>
+  cellHeights.value.reduce((a, b) => a + b, 0)
+);
+
+function startColResize(colIdx, event) {
+  resizing.value = true;
+  resizeType.value = 'col';
+  resizeIndex.value = colIdx;
+  startPos.value = event.clientX;
+  startSize.value = cellWidths.value[colIdx];
+  event.preventDefault();
+}
+function startRowResize(rowIdx, event) {
+  resizing.value = true;
+  resizeType.value = 'row';
+  resizeIndex.value = rowIdx;
+  startPos.value = event.clientY;
+  startSize.value = cellHeights.value[rowIdx];
+  event.preventDefault();
+}
 </script>
 
 <style lang="scss" scoped>
 .canvas-wrapper {
-    width: 100%;    /* viewport width */
-    height: 100%;   /* viewport height */
-    overflow: auto;  /* show scrollbars when content >  wrapper */
+    width: 100%;
+    height: 100%;
+    overflow: auto;
     border: 1px solid #ccc;
-  
-    /* ensure no extra whitespace around the canvas */
+    position: relative;
     canvas {
         display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
     }
+}
+.splitter {
+  position: absolute;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.2s;
+}
+.splitter-vertical {
+  width: 5px;
+  cursor: col-resize;
+  top: 0;
+}
+.splitter-horizontal {
+  height: 5px;
+  cursor: row-resize;
+  left: 0;
+}
+.splitter:hover, .splitter.active {
+  background: rgba(0, 123, 255, 0.2);
+  border-radius: 2px;
 }
 </style>
