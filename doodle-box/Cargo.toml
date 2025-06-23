@@ -1,0 +1,9 @@
+[package]
+name = "doodle_box"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.31.1"
+eframe = "0.31.1"
+serde = { version = "1.0.212", features = ["derive"] }
